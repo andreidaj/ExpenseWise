@@ -1,0 +1,57 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: expensewise
+      POSTGRES_PASSWORD: expensewise
+      POSTGRES_DB: expensewise
+    ports:
+      - "5432:5432"
+    volumes:
+      - expensewise_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U expensewise -d expensewise"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: ./apps/api
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://expensewise:expensewise@db:5432/expensewise
+      TRUSTED_PROXIES: "${TRUSTED_PROXIES:-127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.65.0/24}"
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_TTL_MINUTES: "15"
+      REFRESH_TOKEN_TTL_DAYS: "30"
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:3000}
+      ASSISTANT_PUBLIC_URL: ${ASSISTANT_PUBLIC_URL:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-ExpenseWise <noreply@localhost>}
+      FRANKFURTER_URL: ${FRANKFURTER_URL:-https://api.frankfurter.app}
+      OCR_URL: http://ocr:8080
+    depends_on:
+      db:
+        condition: service_healthy
+      ocr:
+        condition: service_started
+
+  web:
+    build: ./apps/web
+    ports:
+      - "3000:3000"
+    environment:
+      API_INTERNAL_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_started
+
+  ocr:
+    build: ./services/ocr
+    ports:
+      - "8081:8080"
+
+volumes:
+  expensewise_pg:
