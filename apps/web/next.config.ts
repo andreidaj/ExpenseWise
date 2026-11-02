@@ -3,6 +3,10 @@ import type { NextConfig } from "next";
 const apiInternal = (process.env.API_INTERNAL_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Citirea unui bon de pe telefon trece de limita implicită de 30 de secunde.
+    proxyTimeout: 200_000,
+  },
   async rewrites() {
     return {
       beforeFiles: [

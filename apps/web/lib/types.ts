@@ -1,7 +1,7 @@
 export type Role = "owner" | "admin" | "editor" | "viewer";
 export type SpaceKind = "personal" | "family" | "project";
 export type AccountKind = "cash" | "bank" | "card" | "savings";
-export type TxKind = "income" | "expense" | "transfer";
+export type TxKind = "income" | "expense" | "transfer" | "debt" | "repayment";
 export type ReportView = "separate" | "consolidated" | "both";
 export type Frequency = "weekly" | "monthly" | "yearly";
 
@@ -168,13 +168,47 @@ export type AssistantGrant = {
   last_used_at: string | null;
 };
 
+export type ImportSimilar = {
+  id: string;
+  occurred_on: string;
+  amount: string;
+  currency: string;
+  description: string;
+  kind: string;
+};
+
 export type ImportPreviewRow = {
   id: string;
   row_number: number;
   raw: Record<string, unknown>;
   mapped: Record<string, unknown>;
   duplicate_of: string | null;
+  duplicate: boolean;
+  similar: ImportSimilar | null;
+  outside: boolean;
+  error: string | null;
   status: string;
+};
+
+export type DebtRepayment = {
+  id: string;
+  amount: string;
+  account_id: string;
+  occurred_on: string;
+};
+
+export type Debt = {
+  id: string;
+  person_name: string;
+  amount: string;
+  remaining: string;
+  currency: string;
+  account_id: string;
+  account_name: string;
+  occurred_on: string;
+  note: string;
+  closed_at: string | null;
+  repayments: DebtRepayment[];
 };
 
 export type ImportPreview = {
@@ -224,6 +258,8 @@ export const TX_KIND_LABEL: Record<TxKind, string> = {
   income: "Venit",
   expense: "Cheltuială",
   transfer: "Transfer",
+  debt: "Datorie",
+  repayment: "Înapoi",
 };
 
 export const FREQUENCY_LABEL: Record<Frequency, string> = {

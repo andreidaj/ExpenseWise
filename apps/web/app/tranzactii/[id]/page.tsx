@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Guard } from "@/components/Guard";
@@ -50,7 +51,12 @@ function EditTransaction({ space }: { space: Space }) {
       <PageHeader title={canWriteTransactions(space.role) ? "Modifică tranzacția" : "Tranzacție"} />
       {error ? <Alert>{error}</Alert> : null}
       {!transaction && !error ? <p className="muted">Se încarcă tranzacția…</p> : null}
-      {transaction ? (
+      {transaction && (transaction.kind === "debt" || transaction.kind === "repayment") ? (
+        <p className="muted">
+          Mișcarea asta ține de o datorie. O vezi și o închizi în <Link href="/datorii">Datorii</Link>.
+        </p>
+      ) : null}
+      {transaction && transaction.kind !== "debt" && transaction.kind !== "repayment" ? (
         <TransactionForm
           spaceId={space.id}
           baseCurrency={space.base_currency}

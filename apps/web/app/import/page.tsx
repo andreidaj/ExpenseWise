@@ -4,9 +4,11 @@ import { Fraunces } from "next/font/google";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Guard } from "@/components/Guard";
 import { SpaceBody } from "@/components/SpaceBody";
-import { formatDisplayDate, formatMoney } from "@/lib/format";
+import { useAuth } from "@/lib/auth";
+import { formatDisplayDate, formatMoney, parseDisplayDate, todayIso } from "@/lib/format";
 import { errorMessage } from "@/lib/http";
 import { mappedText } from "@/lib/normalize";
+import { currentPeriod, periodStartDay, shiftPeriod } from "@/lib/period";
 import { canWriteTransactions } from "@/lib/permissions";
 import { resources } from "@/lib/resources";
 import { readSpreadsheet, type SheetTable } from "@/lib/sheet";
@@ -48,7 +50,17 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+function previousPeriod(startDay: number) {
+  const today = todayIso();
+  const current = currentPeriod(today, startDay);
+  return shiftPeriod(current, -1, startDay, today) ?? current;
+}
+
 function ImportScreen({ space }: { space: Space }) {
+  const { user } = useAuth();
+  const initialPeriod = previousPeriod(periodStartDay(user?.period_start_day));
+  const [from, setFrom] = useState(formatDisplayDate(initialPeriod.from));
+  const [to, setTo] = useState(formatDisplayDate(initialPeriod.to));
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [file, setFile] = useState<File | null>(null);
@@ -88,10 +100,10 @@ function ImportScreen({ space }: { space: Space }) {
       setTable(null);
       return;
     }
-    if (!/\.(csv|xlsx)$/i.test(next.name)) {
+    if (!/\.(csv|xls|xlsx)$/i.test(next.name)) {
       clearChosenFile();
       setTable(null);
-      setError("Folosește un CSV (.csv) sau un Excel (.xlsx).");
+      setError("Folosește un CSV (.csv) sau un Excel (.xls, .xlsx).");
       return;
     }
     setFile(next);
@@ -115,6 +127,19 @@ function ImportScreen({ space }: { space: Space }) {
       setError("Asociază cel puțin data și suma.");
       return;
     }
+    let start = "";
+    let end = "";
+    try {
+      start = parseDisplayDate(from);
+      end = parseDisplayDate(to);
+    } catch (cause) {
+      setError(errorMessage(cause));
+      return;
+    }
+    if (start > end) {
+      setError("Data de început este după data de sfârșit.");
+      return;
+    }
     setPending(true);
     setError(null);
     setInfo(null);
@@ -125,11 +150,16 @@ function ImportScreen({ space }: { space: Space }) {
       if (accountId) form.append("account_id", accountId);
       if (categoryId) form.append("category_id", categoryId);
       form.append("kind", kind);
+      form.append("date_from", start);
+      form.append("date_to", end);
       const result = await resources.previewImport(space.id, form);
       if (!result.id) throw new Error("Serverul nu a întors lotul de previzualizare.");
       setPreview(result);
       const initial: Record<string, boolean> = {};
-      for (const row of result.rows) initial[row.id] = !row.duplicate_of && row.status !== "skipped";
+      for (const row of result.rows) {
+        const warned = row.duplicate || row.duplicate_of || row.similar || row.outside || row.error;
+        initial[row.id] = !warned && row.status !== "skipped";
+      }
       setChecked(initial);
     } catch (cause) {
       setError(errorMessage(cause));
@@ -186,19 +216,34 @@ function ImportScreen({ space }: { space: Space }) {
             </p>
           ) : null}
           <form className="ew-panel" onSubmit={(event) => void requestPreview(event)}>
+            <div className="ew-split">
+              <Field label="De la">
+                <input value={from} placeholder="ZZ.LL.AAAA" onChange={(event) => setFrom(event.target.value)} required />
+              </Field>
+              <Field label="Până la">
+                <input value={to} placeholder="ZZ.LL.AAAA" onChange={(event) => setTo(event.target.value)} required />
+              </Field>
+            </div>
+            <p className="ew-note">Implicit este luna trecută. Din fișier intră doar rândurile din perioada asta.</p>
             <div className="ew-file">
-              <p className="ew-note">Tipuri suportate: CSV (.csv) și Excel (.xlsx).</p>
+              <p className="ew-note">Tipuri suportate: CSV (.csv) și Excel (.xls, .xlsx).</p>
               <label className="ew-primary ew-choose">
                 {file ? "Schimbă fișierul" : "Alege fișierul"}
                 <input
                   ref={fileInput}
                   className="ew-picker"
                   type="file"
-                  accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                   onChange={(event) => void onFile(event.target.files?.[0] ?? null)}
                 />
               </label>
               {file ? <p className="ew-file-name">{file.name}</p> : null}
+              {table?.bank ? (
+                <p className="ew-note">
+                  Am recunoscut extrasul {table.bank === "ing" ? "ING" : table.bank === "raiffeisen" ? "Raiffeisen" : "Revolut"}. Data, suma, descrierea și tipul sunt completate. Alege contul.
+                  Categoria lipsă devine Altele, după tipul rândului.
+                </p>
+              ) : null}
             </div>
             {table ? (
               <>
@@ -271,7 +316,10 @@ function ImportScreen({ space }: { space: Space }) {
           {preview ? (
             <section className="ew-panel">
               <h2 className={display.className}>Previzualizare {preview.filename}</h2>
-              <p className="ew-note">Duplicatele sunt debifate. Bifează-le doar dacă vrei să le adaugi oricum.</p>
+              <p className="ew-note">
+                Rândurile care seamănă cu ceva deja trecut sunt debifate. Bifează-le doar dacă vrei să le adaugi oricum.
+                {preview.rows.some((row) => row.outside) ? ` ${preview.rows.filter((row) => row.outside).length} rânduri sunt în afara perioadei și nu intră.` : ""}
+              </p>
               <div className="ew-table">
                 <table>
                   <thead>
@@ -285,7 +333,7 @@ function ImportScreen({ space }: { space: Space }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {preview.rows.map((row) => {
+                    {preview.rows.filter((row) => !row.outside).map((row) => {
                       const date = mappedText(row.mapped, ["occurred_on", "date", "data"]);
                       const amount = mappedText(row.mapped, ["amount", "suma"]);
                       const currency = mappedText(row.mapped, ["currency", "moneda"]) || "RON";
@@ -304,7 +352,18 @@ function ImportScreen({ space }: { space: Space }) {
                           <td>{date.includes("-") ? formatDisplayDate(date) : date}</td>
                           <td>{amount ? formatMoney(amount, currency) : "—"}</td>
                           <td>{description || "—"}</td>
-                          <td>{row.duplicate_of ? <span className="ew-flag">Duplicat</span> : "—"}</td>
+                          <td>
+                            {row.similar ? (
+                              <span className="ew-flag">
+                                Ai deja {formatDisplayDate(row.similar.occurred_on)} · {formatMoney(row.similar.amount, row.similar.currency)}
+                                {row.similar.description ? ` · ${row.similar.description}` : ""}
+                              </span>
+                            ) : row.duplicate ? (
+                              <span className="ew-flag">Duplicat</span>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
                         </tr>
                       );
                     })}

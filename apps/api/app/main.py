@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.auth import me, router as auth_router
+from app.api.debts import router as debts_router
 from app.api.io import router as io_router
 from app.api.money import router as money_router
 from app.api.spaces import router as spaces_router
@@ -47,6 +48,7 @@ def create_app() -> FastAPI:
     app.include_router(me, prefix="/api")
     app.include_router(spaces_router, prefix="/api")
     app.include_router(money_router, prefix="/api")
+    app.include_router(debts_router, prefix="/api")
     app.include_router(io_router, prefix="/api")
     if enabled:
         app.include_router(assistant_router, prefix="/api")

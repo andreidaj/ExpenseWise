@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel
@@ -20,6 +21,7 @@ router = APIRouter(tags=["import"])
 
 class ConfirmIn(BaseModel):
     row_ids: list[uuid.UUID] | None = None
+    include_row_ids: list[uuid.UUID] | None = None
 
 
 class SaveReceipt(BaseModel):
@@ -32,15 +34,36 @@ class SaveReceipt(BaseModel):
 
 def _row_out(row: ImportRow) -> dict:
     mapped = row.mapped or {}
+    hidden = {"error", "duplicate", "similar", "outside", "in_file_duplicate", "fingerprint"}
     return {
         "id": str(row.id),
         "row_number": row.row_number,
         "status": row.status,
         "duplicate": bool(mapped.get("duplicate")),
         "duplicate_of": str(row.duplicate_of) if row.duplicate_of else None,
+        "similar": mapped.get("similar"),
+        "outside": bool(mapped.get("outside")),
         "error": mapped.get("error"),
-        "mapped": {key: value for key, value in mapped.items() if key not in {"error", "duplicate"}},
+        "mapped": {key: value for key, value in mapped.items() if key not in hidden},
     }
+
+
+def _form_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise AppError(422, "Data perioadei este invalidă.") from exc
+
+
+def _form_uuid(value: str | None) -> uuid.UUID | None:
+    if not value:
+        return None
+    try:
+        return uuid.UUID(value)
+    except ValueError:
+        return None
 
 
 @router.post("/spaces/{space_id}/imports", status_code=201)
@@ -48,11 +71,22 @@ async def post_import(
     space_id: uuid.UUID,
     file: UploadFile = File(...),
     mapping: str | None = Form(None),
+    account_id: str | None = Form(None),
+    category_id: str | None = Form(None),
+    kind: str | None = Form(None),
+    date_from: str | None = Form(None),
+    date_to: str | None = Form(None),
     user: User = Depends(get_verified_user),
     db: Session = Depends(get_db),
 ):
     space, member = membership(db, space_id, user)
     require_role(member, "editor")
+    start = _form_date(date_from)
+    end = _form_date(date_to)
+    if (start is None) != (end is None):
+        raise AppError(422, "Perioada cere ambele date.")
+    if start is not None and end is not None and start > end:
+        raise AppError(422, "Data de început este după data de sfârșit.")
     content = await file.read()
     parsed = json.loads(mapping) if mapping else None
     batch = preview_import(
@@ -62,6 +96,11 @@ async def post_import(
         filename=file.filename or "import.csv",
         content=content,
         mapping=parsed,
+        account_id=_form_uuid(account_id),
+        category_id=_form_uuid(category_id),
+        default_kind=kind,
+        date_from=start,
+        date_to=end,
     )
     rows = db.scalars(select(ImportRow).where(ImportRow.batch_id == batch.id).order_by(ImportRow.row_number)).all()
     return {"id": str(batch.id), "filename": batch.filename, "status": batch.status, "rows": [_row_out(row) for row in rows]}
@@ -80,7 +119,12 @@ def post_confirm(
     batch = db.get(ImportBatch, batch_id)
     if batch is None or batch.space_id != space.id:
         raise AppError(404, "Lotul nu există.")
-    ids = set(body.row_ids) if body and body.row_ids is not None else None
+    chosen = None
+    if body is not None and body.row_ids is not None:
+        chosen = set(body.row_ids)
+    elif body is not None and body.include_row_ids is not None:
+        chosen = set(body.include_row_ids)
+    ids = chosen
     return confirm_import(db, space=space, user=user, batch=batch, row_ids=ids)
 
 

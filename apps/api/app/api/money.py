@@ -158,7 +158,7 @@ def list_transactions(
     rows = db.scalars(
         select(Transaction)
         .where(Transaction.space_id == space.id, Transaction.deleted_at.is_(None))
-        .order_by(Transaction.occurred_on, Transaction.created_at)
+        .order_by(Transaction.occurred_on.desc(), Transaction.created_at.desc())
     ).all()
     return [transaction_out(row) for row in rows]
 

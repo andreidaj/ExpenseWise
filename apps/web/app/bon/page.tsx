@@ -156,23 +156,39 @@ function ReceiptScreen({ space }: { space: Space }) {
           ) : null}
           <section className="ew-panel">
             <div className="ew-photo">
-              <label className={pending ? "ew-primary is-off" : "ew-primary"}>
-                Fă o poză
-                <input
-                  className="ew-picker"
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  disabled={pending}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    event.target.value = "";
-                    if (file) void upload(file);
-                  }}
-                />
-              </label>
-              <label className={pending ? "ew-quiet is-off" : "ew-quiet"}>
-                Alege din telefon
+              <div className="ew-photo-phone">
+                <label className={pending ? "ew-primary is-off" : "ew-primary"}>
+                  Fă o poză
+                  <input
+                    className="ew-picker"
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    disabled={pending}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+                      if (file) void upload(file);
+                    }}
+                  />
+                </label>
+                <label className={pending ? "ew-quiet is-off" : "ew-quiet"}>
+                  Alege din telefon
+                  <input
+                    className="ew-picker"
+                    type="file"
+                    accept="image/*"
+                    disabled={pending}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+                      if (file) void upload(file);
+                    }}
+                  />
+                </label>
+              </div>
+              <label className={pending ? "ew-primary ew-photo-desk is-off" : "ew-primary ew-photo-desk"}>
+                Alege un bon
                 <input
                   className="ew-picker"
                   type="file"
@@ -354,6 +370,12 @@ body:has(.ew-page) { margin: 0; }
   font-size: 16px;
 }
 .ew-photo { display: grid; gap: 10px; }
+.ew-photo-phone { display: grid; gap: 10px; }
+.ew-photo .ew-photo-desk { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .ew-photo-phone { display: none; }
+  .ew-photo .ew-photo-desk { display: inline-flex; }
+}
 .ew-photo .ew-primary, .ew-photo .ew-quiet { position: relative; }
 .ew-page input.ew-picker {
   position: absolute;

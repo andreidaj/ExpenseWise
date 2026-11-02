@@ -4,6 +4,7 @@ import {
   normalizeAccount,
   normalizeBudget,
   normalizeCategory,
+  normalizeDebt,
   normalizeGoal,
   normalizeGrant,
   normalizeImportPreview,
@@ -169,4 +170,11 @@ export const resources = {
     api(`/api/asistent/autorizare/${requestId}`, { method: "POST", json: { allow } }),
   grants: () => api("/api/asistent/conexiuni").then((data) => list(data, normalizeGrant)),
   revokeGrant: (id: string) => api(`/api/asistent/conexiuni/${id}`, { method: "DELETE" }),
+
+  debts: (spaceId: string) => api(`/api/spaces/${spaceId}/debts`).then((data) => list(data, normalizeDebt)),
+  createDebt: (spaceId: string, body: { person_name: string; amount: string; account_id: string; occurred_on: string; note?: string }) =>
+    api(`/api/spaces/${spaceId}/debts`, { method: "POST", json: body }).then(normalizeDebt),
+  repayDebt: (spaceId: string, debtId: string, body: { amount: string; account_id: string; occurred_on: string }) =>
+    api(`/api/spaces/${spaceId}/debts/${debtId}/repayments`, { method: "POST", json: body }).then(normalizeDebt),
+  deleteDebt: (spaceId: string, debtId: string) => api(`/api/spaces/${spaceId}/debts/${debtId}`, { method: "DELETE" }),
 };

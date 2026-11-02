@@ -174,7 +174,11 @@ function Transactions({ space }: { space: Space }) {
                 {row.fx_rate ? ` · ${fxCaption(row.fx_rate, row.fx_source, row.fx_rate_date)}` : ""}
               </div>
               <div className="ew-actions">
-                {canWriteTransactions(space.role) ? (
+                {row.kind === "debt" || row.kind === "repayment" ? (
+                  <Link className="btn ghost" href="/datorii">
+                    Datorii
+                  </Link>
+                ) : canWriteTransactions(space.role) ? (
                   <Link className="btn ghost" href={`/tranzactii/${row.id}`}>
                     Modifică
                   </Link>
@@ -183,7 +187,7 @@ function Transactions({ space }: { space: Space }) {
                     Vezi
                   </Link>
                 )}
-                {canDelete(space.role) ? (
+                {canDelete(space.role) && row.kind !== "debt" && row.kind !== "repayment" ? (
                   <button className="btn danger" type="button" onClick={() => void remove(row)}>
                     Șterge
                   </button>

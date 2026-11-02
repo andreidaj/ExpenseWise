@@ -9,9 +9,11 @@ import type {
   CategoryTotal,
   CurrencyTotal,
   Frequency,
+  Debt,
   Goal,
   ImportPreview,
   ImportPreviewRow,
+  ImportSimilar,
   Member,
   ReceiptDraft,
   ReceiptLine,
@@ -30,7 +32,7 @@ import type {
 const ROLES: Role[] = ["owner", "admin", "editor", "viewer"];
 const SPACE_KINDS: SpaceKind[] = ["personal", "family", "project"];
 const ACCOUNT_KINDS: AccountKind[] = ["cash", "bank", "card", "savings"];
-const TX_KINDS: TxKind[] = ["income", "expense", "transfer"];
+const TX_KINDS: TxKind[] = ["income", "expense", "transfer", "debt", "repayment"];
 const FREQUENCIES: Frequency[] = ["weekly", "monthly", "yearly"];
 const VIEWS: ReportView[] = ["separate", "consolidated", "both"];
 
@@ -315,6 +317,48 @@ export function normalizeConsent(raw: unknown): { clientName: string; email: str
   };
 }
 
+function normalizeSimilar(value: unknown): ImportSimilar | null {
+  const row = asRecord(value);
+  const id = asString(row.id);
+  if (!id) return null;
+  return {
+    id,
+    occurred_on: asString(row.occurred_on) || "",
+    amount: dec(row.amount),
+    currency: (asString(row.currency) || "RON").toUpperCase(),
+    description: asString(row.description) || "",
+    kind: asString(row.kind) || "",
+  };
+}
+
+export function normalizeDebt(raw: unknown): Debt | null {
+  const row = asRecord(raw);
+  const id = asString(row.id);
+  if (!id) return null;
+  const repayments = Array.isArray(row.repayments) ? row.repayments : [];
+  return {
+    id,
+    person_name: asString(row.person_name) || "",
+    amount: dec(row.amount),
+    remaining: dec(row.remaining),
+    currency: (asString(row.currency) || "RON").toUpperCase(),
+    account_id: asString(row.account_id) || "",
+    account_name: asString(row.account_name) || "",
+    occurred_on: asString(row.occurred_on) || "",
+    note: asString(row.note) || "",
+    closed_at: asString(row.closed_at),
+    repayments: repayments.map((item) => {
+      const repayment = asRecord(item);
+      return {
+        id: asString(repayment.id) || "",
+        amount: dec(repayment.amount),
+        account_id: asString(repayment.account_id) || "",
+        occurred_on: asString(repayment.occurred_on) || "",
+      };
+    }),
+  };
+}
+
 function mappedRecord(value: unknown): Record<string, unknown> {
   return asRecord(value);
 }
@@ -332,6 +376,10 @@ export function normalizeImportPreview(raw: unknown): ImportPreview {
       raw: mappedRecord(row.raw),
       mapped: mappedRecord(row.mapped),
       duplicate_of: asString(row.duplicate_of),
+      duplicate: row.duplicate === true || Boolean(asString(row.duplicate_of)),
+      similar: normalizeSimilar(row.similar),
+      outside: row.outside === true,
+      error: asString(row.error),
       status: asString(row.status) || "pending",
     };
   });

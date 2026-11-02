@@ -245,6 +245,35 @@ class ImportRow(Base):
     status: Mapped[str] = mapped_column(Text, default="pending")
 
 
+class Debt(Base):
+    __tablename__ = "debts"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=_uuid)
+    space_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"))
+    person_name: Mapped[str] = mapped_column(Text)
+    account_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("accounts.id"))
+    transaction_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("transactions.id", ondelete="CASCADE"))
+    amount: Mapped[Decimal] = mapped_column(Numeric(19, 4))
+    currency: Mapped[str] = mapped_column(CHAR(3))
+    occurred_on: Mapped[date] = mapped_column(Date)
+    note: Mapped[str] = mapped_column(Text, default="")
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class DebtRepayment(Base):
+    __tablename__ = "debt_repayments"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=_uuid)
+    debt_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("debts.id", ondelete="CASCADE"))
+    account_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("accounts.id"))
+    transaction_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("transactions.id", ondelete="CASCADE"))
+    amount: Mapped[Decimal] = mapped_column(Numeric(19, 4))
+    occurred_on: Mapped[date] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class ReceiptDraft(Base):
     __tablename__ = "receipt_drafts"
 

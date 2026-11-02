@@ -339,6 +339,8 @@ def create_transaction(
 def update_transaction(db: Session, *, space: Space, tx: Transaction, actor_id: uuid.UUID, data: dict) -> Transaction:
     if tx.deleted_at is not None or tx.space_id != space.id:
         raise AppError(404, "Tranzacția nu există.")
+    if tx.kind in {"debt", "repayment"}:
+        raise AppError(422, "Datoria se modifică din pagina Datorii.")
     if data.get("kind") is not None and data["kind"] != tx.kind:
         raise AppError(422, "Tipul tranzacției nu se schimbă.")
     account = _load_account(db, space.id, data["account_id"]) if data.get("account_id") else db.get(Account, tx.account_id)
@@ -401,6 +403,8 @@ def update_transaction(db: Session, *, space: Space, tx: Transaction, actor_id: 
 def soft_delete(db: Session, *, space: Space, tx: Transaction, user_id: uuid.UUID) -> Transaction:
     if tx.space_id != space.id or tx.deleted_at is not None:
         raise AppError(404, "Tranzacția nu există.")
+    if tx.kind in {"debt", "repayment"}:
+        raise AppError(422, "Datoria se șterge din pagina Datorii.")
     tx.deleted_at = now_utc()
     tx.updated_at = tx.deleted_at
     audit(
@@ -433,6 +437,10 @@ def account_balance(db: Session, account: Account, on: date | None = None) -> De
                 balance -= tx.amount
             elif tx.kind == "transfer":
                 balance -= tx.amount
+            elif tx.kind == "debt":
+                balance -= tx.amount
+            elif tx.kind == "repayment":
+                balance += tx.amount
         if tx.kind == "transfer" and tx.counter_account_id == account.id:
             balance += tx.counter_amount if tx.counter_amount is not None else tx.amount
     return q4(balance)

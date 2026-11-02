@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 import re
@@ -18,6 +19,36 @@ log = logging.getLogger("expensewise.ocr")
 app = FastAPI(title="ExpenseWise OCR")
 
 _ENGINE = None
+_MAX_EDGE = 1600
+
+
+def _prepare_image(image: bytes) -> bytes:
+    from PIL import Image, ImageOps
+
+    opened = Image.open(io.BytesIO(image))
+    try:
+        frame = ImageOps.exif_transpose(opened)
+        if frame.mode not in {"RGB", "L"}:
+            frame = frame.convert("RGB")
+        frame.thumbnail((_MAX_EDGE, _MAX_EDGE))
+        output = io.BytesIO()
+        frame.save(output, format="JPEG", quality=85)
+        return output.getvalue()
+    finally:
+        opened.close()
+
+
+_MONEY = re.compile(r"(?<!\d)(\d{1,3}(?:[.\s]\d{3})*[.,]\d{2}|\d+[.,]\d{2})(?!\d)")
+_ISO_DATE = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
+_DMY_DATE = re.compile(r"(?<!\d)(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})(?!\d)")
+_CLOCK = re.compile(r"\d{1,2}:\d{2}")
+_SUBTOTAL = re.compile(r"\bsub\s*total\b")
+_VAT = re.compile(r"\b(?:tva|taxa|vat)\b")
+_FOLD = str.maketrans("ăâîșşțţĂÂÎȘŞȚŢ", "aaissttAAISSTT")
+
+
+def _fold(value: str) -> str:
+    return value.translate(_FOLD).casefold()
 
 
 def _decimal(raw: str) -> str | None:
@@ -38,42 +69,109 @@ def _decimal(raw: str) -> str | None:
     return f"{value.quantize(Decimal('0.0001')):.4f}"
 
 
+def _money_values(line: str) -> list[str]:
+    found: list[str] = []
+    for match in _MONEY.finditer(line):
+        if re.match(r"[./-]\d", line[match.end() :]):
+            continue
+        parsed = _decimal(match.group(1))
+        if parsed:
+            found.append(parsed)
+    return found
+
+
+def _calendar(year: int, month: int, day: int) -> str | None:
+    if year < 100:
+        year += 2000 if year < 70 else 1900
+    try:
+        return date(year, month, day).isoformat()
+    except ValueError:
+        return None
+
+
+def _dates_in(line: str) -> list[tuple[str, bool]]:
+    found: list[tuple[str, bool]] = []
+    covered: list[tuple[int, int]] = []
+    for match in _ISO_DATE.finditer(line):
+        iso = _calendar(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        if iso is None:
+            continue
+        covered.append(match.span())
+        found.append((iso, bool(_CLOCK.match(line[match.end() :].lstrip()))))
+    for match in _DMY_DATE.finditer(line):
+        if any(start <= match.start() < end for start, end in covered):
+            continue
+        iso = _calendar(int(match.group(3)), int(match.group(2)), int(match.group(1)))
+        if iso is None:
+            continue
+        found.append((iso, bool(_CLOCK.match(line[match.end() :].lstrip()))))
+    return found
+
+
+def _is_vat(line: str) -> bool:
+    folded = _fold(line)
+    return "din care" in folded or bool(_VAT.search(folded))
+
+
+def _total_rank(line: str) -> int:
+    folded = _fold(line)
+    if _is_vat(line) or _SUBTOTAL.search(folded):
+        return 0
+    if re.search(r"\btotal\s*lei\b|\btotal\s*de\s*plata\b|\bde\s*plata\b", folded):
+        return 3
+    if re.search(r"\btotal\b", folded):
+        return 2
+    if re.search(r"\bsuma\b", folded):
+        return 1
+    return 0
+
+
 def parse_text(text: str) -> dict:
     lines_in = [line.strip() for line in text.splitlines() if line.strip()]
-    merchant = lines_in[0] if lines_in else None
+    merchant = next((line for line in lines_in if not _dates_in(line) or _money_values(line)), None)
     occurred = None
+    stamped: str | None = None
     total = None
+    total_rank = 0
     currency = "RON"
     items: list[dict] = []
+    waiting_rank = 0
     for line in lines_in:
-        iso = re.search(r"(\d{4}-\d{2}-\d{2})", line)
-        dmy = re.search(r"(\d{2})[./](\d{2})[./](\d{4})", line)
-        if iso:
-            occurred = iso.group(1)
-        elif dmy:
-            occurred = f"{dmy.group(3)}-{dmy.group(2)}-{dmy.group(1)}"
-        upper = line.upper()
-        if "EUR" in upper:
+        for iso, has_time in _dates_in(line):
+            if stamped is None and has_time:
+                stamped = iso
+            elif occurred is None:
+                occurred = iso
+        folded = _fold(line)
+        if "eur" in folded:
             currency = "EUR"
-        elif "USD" in upper:
+        elif "usd" in folded:
             currency = "USD"
-        elif "RON" in upper or "LEI" in upper:
+        elif "ron" in folded or re.search(r"\blei\b", folded):
             currency = "RON"
-        amounts = re.findall(r"\d{1,3}(?:[.\s]\d{3})*(?:[.,]\d{2})|\d+[.,]\d{2}|\d+", line)
-        parsed = _decimal(amounts[-1]) if amounts else None
-        if parsed is None:
+        amounts = _money_values(line)
+        rank = _total_rank(line)
+        if rank:
+            if amounts and rank >= total_rank:
+                total = amounts[-1]
+                total_rank = rank
+            waiting_rank = rank if not amounts and rank >= total_rank else 0
             continue
-        if re.search(r"\b(total|suma|de plata|de plată)\b", line, re.I):
-            total = parsed
-        else:
-            label = re.sub(r"\d{1,3}(?:[.\s]\d{3})*(?:[.,]\d{2})|\d+[.,]\d{2}|\d+", "", line).strip(" -:")
-            if label and label != merchant:
-                items.append({"description": label, "amount": parsed})
-    if total is None and items:
-        total = items[-1]["amount"]
+        if waiting_rank and amounts and not _is_vat(line):
+            total = amounts[-1]
+            total_rank = waiting_rank
+            waiting_rank = 0
+            continue
+        if waiting_rank and _is_vat(line):
+            continue
+        if not amounts:
+            continue
+        label = _MONEY.sub("", line).strip(" -:")
+        if label and label != merchant:
+            items.append({"description": label, "amount": amounts[-1]})
     return {
         "merchant": merchant,
-        "occurred_on": occurred or date.today().isoformat(),
+        "occurred_on": stamped or occurred,
         "total_amount": total,
         "currency": currency,
         "lines": items,
@@ -134,9 +232,15 @@ def _paddle_text(image: bytes) -> str | None:
     except ImportError:
         return None
     engine = _engine()
+    prepared = image
     suffix = ".jpg" if image.startswith(b"\xff\xd8") else ".png"
+    try:
+        prepared = _prepare_image(image)
+        suffix = ".jpg"
+    except Exception:
+        log.exception("Nu am putut pregăti poza bonului")
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
-        handle.write(image)
+        handle.write(prepared)
         path = handle.name
     try:
         try:
