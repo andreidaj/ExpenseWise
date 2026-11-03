@@ -1,3 +1,5 @@
+import type { ParsingOptions } from "xlsx";
+
 export type SheetTable = {
   headers: string[];
   rows: Record<string, string>[];
@@ -77,7 +79,7 @@ export async function readSpreadsheet(file: File): Promise<SheetTable> {
     type: "array",
     cellDates: true,
     codepage: 1250,
-  } as XLSX.ParsingOptions);
+  } as ParsingOptions);
   const sheet = book.Sheets[book.SheetNames[0]];
   const matrix = XLSX.utils.sheet_to_json<(string | number | boolean | Date | null)[]>(sheet, {
     header: 1,
