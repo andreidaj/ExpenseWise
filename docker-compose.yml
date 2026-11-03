@@ -39,7 +39,10 @@ services:
         condition: service_started
 
   web:
-    build: ./apps/web
+    build:
+      context: ./apps/web
+      args:
+        API_INTERNAL_URL: http://api:8000
     ports:
       - "3000:3000"
     environment:
