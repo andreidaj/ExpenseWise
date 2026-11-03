@@ -16,7 +16,9 @@ from argon2.exceptions import VerifyMismatchError
 from app.errors import AppError
 from app.money import now_utc
 
-_hasher = PasswordHasher()
+# Parametrii recomandați de OWASP pentru un procesor mic. Valorile implicite
+# țineau înregistrarea zeci de secunde pe Railway.
+_hasher = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1)
 _lock = threading.Lock()
 _register_hits: dict[str, list[float]] = defaultdict(list)
 _login_failures: dict[str, list[float]] = defaultdict(list)
